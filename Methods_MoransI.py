@@ -27,7 +27,7 @@ import json
 import math
 from tqdm import tqdm
 from esda.moran import Moran
-from libpysal.weights import lat2W, full2W
+from libpysal.weights import full2W
 
 pd.options.mode.chained_assignment = None
 
@@ -35,7 +35,6 @@ ROS = RandomOverSampler()
 RUS = RandomUnderSampler()
 SM = SMOTE()
 
-city = "Los Angeles"
 #Initiate training and test set
 train_set = []
 test_set = []
@@ -47,23 +46,22 @@ for file in os.listdir('./Data3/Test'):
         path = os.path.join('./Data3/Test',file)
         df = pd.read_csv(path,index_col=None,header = 0)
         test_set.append(df)
-        
+        # city = str(file[:-4])
+        # city = "New York"
+        # print(city)
+
 df_train = pd.concat(train_set,axis=0,ignore_index=True)
 df_test = pd.concat(test_set,axis=0,ignore_index=True)
 
-print(df_train.shape)
-print(df_test.shape)
 df_all = pd.concat([df_train,df_test],axis=0,ignore_index=True)
-print(df_all.shape)
 train_shape = df_train.shape
-print(train_shape[0])
 
 tracts = list(df_test["NAME"])
 
 #Plot penetration count histogram
 Y = df_all['Airbnb penetration']
 w = Counter(Y)
-print(len(w))
+
 # fig, ax = plt.subplots()
 # plt.hist(Y**(1/2), bins=40, edgecolor='black', linewidth=0.5)
 # # plt.bar(w.keys(),w.values())
@@ -77,7 +75,6 @@ print(len(w))
 # plt.show()
 
 #Convert penetration number to class
-print(df_all.nlargest(int(0.1*len(df_all)),['Airbnb penetration']).index)
 df_all.to_csv('df_all.csv')
 smallest = df_all.nsmallest(int(0.7*len(df_all)),['Airbnb penetration']).index
 largest = df_all.nlargest(int(0.05*len(df_all)),['Airbnb penetration']).index
@@ -100,21 +97,30 @@ X = df_test[['Population Density','Race Diversity Index','Income Diversity Index
 
 y = df_all['Airbnb penetration_class']
 
+print("Skewness before")
+print(X.skew(axis=0))
+
 #Adjust skewness
+# X['Population Density'] = X['Population Density']**(1/2)
+# X['Race Diversity Index'] = X['Race Diversity Index']**(1/2)
+# X['Income Diversity Index'] = X['Income Diversity Index']**(1/2)
+# X['Bohemian Index'] = X['Bohemian Index']**(1/2)
+# X['Talent Index'] = X['Talent Index']**(1/2)
+# X['Proportion of Young People'] = X['Proportion of Young People']**(1/2)
+# X['Unemployment Ratio'] = X['Unemployment Ratio']**(1/2)
+# X['Poverty by Income Percentage'] = X['Poverty by Income Percentage']**(1/2)
+# X['Median Household Income'] = X['Median Household Income']**(1/2)
+# X['Median Household Value'] = X['Median Household Value']**(1/2)
+# X['Proportion of Owner Occupied Residences'] = X['Proportion of Owner Occupied Residences']**(1/2)
 X['Number of Hotels'] = X['Number of Hotels']**(1/2)
-X['Population Density'] = X['Population Density']**(1/2)
+# X['Bus Stops'] = X['Bus Stops']**(1/2)
 X['Point of Interests'] = X['Point of Interests']**(1/2)
-#X['Distance to Center'] = X['Distance to Center']**(1/2)
+# X['Distance to Center'] = X['Distance to Center']**(1/2)
 X['Airbnb penetration'] = X['Airbnb penetration']**(1/2)
 
-#X['Number of Hotels'] = np.log(X['Number of Hotels'].replace(0, np.nan))
-#X['Distance to Center'] = np.log(X['Distance to Center'])
-#X['Point of Interests'] = np.log(X['Point of Interests'].replace(0, np.nan))
-#X['Number of Hotels'] = X['Number of Hotels'].replace(np.nan,0)
-#X['Point of Interests'] = X['Point of Interests'].replace(np.nan,0)
-
-
+print("Skewness after")
 print(X.skew(axis=0))
+
 #Normalise data
 X = ((X-X.mean())/X.std())
 
@@ -125,17 +131,38 @@ X = X[['Population Density','Race Diversity Index','Income Diversity Index','Boh
         ,'Median Household Income','Median Household Value','Proportion of Owner Occupied Residences' \
         ,'Number of Hotels','Bus Stops','Point of Interests','Distance to Center']]
 
+vif_data = pd.DataFrame()
+vif_data["feature"] = X.columns
+vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(len(X.columns))]
+print("VIF")
+print(vif_data)
+
+# Regression plot
+x = sm.add_constant(X)
+model = sm.OLS(Y,x).fit()
+predictions = model.predict(x)
+print("Regression", model.summary())
+print("coefficients")
+for coef in list(model.params):
+    print(":", coef)
+print("p-values")
+for i, coef in enumerate(list(model.params)):
+    print(":", model.pvalues[i])
+
+sys.exit()
+
+# Calculate Moran's I
 with open('coordinates_center_per_tract.txt', 'r') as f:
     coordinates_center = json.loads(f.read())
 tracts_coordinates = coordinates_center[city]
-print(len(tracts_coordinates))
+# print(len(tracts_coordinates))
 
 # Remove tracts which are not in csv city file
 tracts_dictionary = list(tracts_coordinates.keys())
 for tract in tracts_dictionary:
     if tract not in tracts:
         tracts_coordinates.pop(tract, None)
-print(len(tracts_coordinates))
+# print(len(tracts_coordinates))
 
 connectivity_matrix = np.empty((len(tracts_coordinates)+1, len(tracts_coordinates)+1), dtype=object)
 connectivity_matrix[1:,0] = list(tracts_coordinates.keys())
@@ -164,29 +191,23 @@ geographical = ['Distance to Center','Point of Interests', 'Number of Hotels', '
 y_features = X[geographical]
 for feature in geographical:
     mean_feature = X[feature].mean()
-    print(mean_feature)
-    print(X[feature])
-    print(X[feature] - mean_feature)
+    # print(mean_feature)
+    # print(X[feature])
+    # print(X[feature] - mean_feature)
     y_features[feature] -= mean_feature
-print(y_features)
+# print(y_features)
 cross_product = np.prod(y_features, axis=1)
 moran = Moran(cross_product, full2W(connectivity_matrix[1:,1:]))
-print(moran.I)
+print("Moran's I")
+print(":", moran.I)
 
+#print(df_all['Airbnb penetration'].skew(axis=0))
+# vif_data = pd.DataFrame()
+# vif_data["feature"] = X.columns
+# vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(len(X.columns))]
+# print("VIF after", vif_data) 
 
 sys.exit()
-#print(df_all['Airbnb penetration'].skew(axis=0))
-vif_data = pd.DataFrame()
-vif_data["feature"] = X.columns
-vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(len(X.columns))]
-print(vif_data) 
-
-#Regression plot
-x = sm.add_constant(X)
-model = sm.OLS(Y,x).fit()
-predictions = model.predict(x)
-print(model.summary())
-
 #Classification
     
 df_all['Number of Hotels'] = df_all['Number of Hotels']**(1/2)
